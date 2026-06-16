@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="sk">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Školská jedáleň – fotogaléria</title>
+    <link rel="stylesheet" href="style.css">
+  </head>
+  <body>
+    <header class="site-header">
+      <div class="container header-layout">
+        <div class="header-content">
+          <h1>Týždenný prehľad školského stravovania</h1>
+          <p class="eyebrow">Fotodokumentácia podávaných jedál</p>
+          <p id="weekRange" class="week-range" aria-live="polite"></p>
+        </div>
+      </div>
+    </header>
+
+    <main class="container">
+      <section class="controls" aria-label="Ovládanie galérie">
+        <div class="week-controls">
+          <button id="previousWeek" class="icon-button" type="button" aria-label="Predchádzajúci týždeň">◀</button>
+          <label class="select-label" for="weekSelect">
+            <span>Týždeň</span>
+            <select id="weekSelect"></select>
+          </label>
+          <button id="nextWeek" class="icon-button" type="button" aria-label="Nasledujúci týždeň">▶</button>
+        </div>
+
+        <div class="meal-toggle" role="group" aria-label="Typ jedla">
+          <button class="meal-button is-active" type="button" data-meal="obed">🍽 Obedy</button>
+          <button class="meal-button" type="button" data-meal="desiata">🥪 Desiata</button>
+        </div>
+      </section>
+
+      <section id="gallery" class="gallery" aria-live="polite"></section>
+
+      <p class="info-note">Zverejňovanie fotodokumentácie jedál je súčasťou snahy školy o transparentnosť a zlepšovanie kvality poskytovaného stravovania.</p>
+    </main>
+
+    <div id="lightbox" class="lightbox" aria-hidden="true" role="dialog" aria-label="Zväčšená fotografia jedla">
+      <button id="lightboxClose" class="lightbox-close" type="button" aria-label="Zavrieť fotografiu">×</button>
+      <figure class="lightbox-content">
+        <img id="lightboxImage" class="lightbox-image" src="" alt="">
+        <figcaption id="lightboxCaption" class="lightbox-caption"></figcaption>
+      </figure>
+    </div>
+
+    <script src="app.js" defer></script>
+  </body>
+</html>
