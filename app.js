@@ -33,6 +33,8 @@ const mealParts = {
 
 let currentWeekIndex = 0;
 let selectedMeal = "obed";
+const assetVersion = "20260616-3";
+let renderRequestId = 0;
 
 const weekRange = document.querySelector("#weekRange");
 const weekSelect = document.querySelector("#weekSelect");
@@ -50,23 +52,48 @@ function formatDateLabel(day) {
 }
 
 function getImagePath(day, file) {
-  return `assets/${day}.${file}.jpg`;
+  return `assets/${day}.${file}.jpg?v=${assetVersion}`;
 }
 
-function removeEmptyCard(element) {
-  const card = element.closest(".day-card");
+function loadImage(src) {
+  return new Promise((resolve) => {
+    const image = new Image();
 
-  element.remove();
+    image.addEventListener("load", () => resolve(src), { once: true });
+    image.addEventListener("error", () => resolve(null), { once: true });
+    image.src = src;
+  });
+}
 
-  if (card && !card.querySelector(".meal-photo")) {
-    card.remove();
+async function resolveMealPart(day, part) {
+  const primarySrc = await loadImage(getImagePath(day, part.file));
+
+  if (primarySrc) {
+    return { ...part, src: primarySrc };
   }
+
+  if (!part.fallback) return null;
+
+  const fallbackSrc = await loadImage(getImagePath(day, part.fallback));
+  return fallbackSrc ? { ...part, src: fallbackSrc } : null;
 }
 
-function createMealFigure(day, part, onMissing, onReady) {
+async function getAvailableMealParts(day, meal) {
+  const parts = mealParts[meal] || [];
+  const availableParts = (await Promise.all(parts.map((part) => resolveMealPart(day, part))))
+    .filter(Boolean);
+
+  if (availableParts.length || meal !== "obed") {
+    return availableParts;
+  }
+
+  const fallbackSrc = await loadImage(getImagePath(day, "obed"));
+  return fallbackSrc ? [{ file: "obed", label: "Obed", src: fallbackSrc }] : [];
+}
+
+function createMealFigure(day, part) {
   const figure = document.createElement("div");
   figure.className = "meal-photo";
-  let fallbackTried = false;
 
   const label = document.createElement("span");
   label.className = "meal-part-label";
@@ -74,7 +101,7 @@ function createMealFigure(day, part, onMissing, onReady) {
 
   const image = document.createElement("img");
   image.className = "day-photo";
-  image.src = getImagePath(day, part.file);
+  image.src = part.src;
   image.alt = `${part.label} ${formatDateLabel(day)}`;
   image.loading = "lazy";
 
@@ -86,35 +113,17 @@ function createMealFigure(day, part, onMissing, onReady) {
     openLightbox(image.src, image.alt);
   });
 
-  // Missing photos are expected. Hide them silently without showing a broken image.
-  image.addEventListener("error", () => {
-    if (part.fallback && !fallbackTried) {
-      fallbackTried = true;
-      image.src = getImagePath(day, part.fallback);
-      return;
-    }
-
-    figure.remove();
-    onMissing();
-  });
-
-  image.addEventListener("load", onReady);
-
   button.append(label, image);
   figure.append(button);
   return figure;
 }
 
-function createMealSlider(day, meal) {
+function createMealSlider(day, parts) {
   const viewer = document.createElement("div");
   viewer.className = "meal-viewer";
 
   const slider = document.createElement("div");
   slider.className = "meal-slider";
-
-  const parts = mealParts[meal] || [];
-  let missingCount = 0;
-  let fallbackUsed = false;
 
   const previousButton = document.createElement("button");
   previousButton.className = "meal-nav meal-nav-previous";
@@ -178,31 +187,8 @@ function createMealSlider(day, meal) {
     scrollToPhoto(Math.min(getVisiblePhotos().length - 1, getCurrentPhotoIndex() + 1));
   });
 
-  function handleMissing() {
-    missingCount = Math.min(missingCount + 1, parts.length);
-
-    if (missingCount < parts.length || slider.querySelector(".meal-photo")) {
-      updateNavButtons();
-      return;
-    }
-
-    if (meal === "obed" && !fallbackUsed) {
-      fallbackUsed = true;
-      slider.append(createMealFigure(
-        day,
-        { file: "obed", label: "Obed" },
-        () => removeEmptyCard(slider),
-        updateNavButtons
-      ));
-      updateNavButtons();
-      return;
-    }
-
-    removeEmptyCard(slider);
-  }
-
   parts.forEach((part) => {
-    slider.append(createMealFigure(day, part, handleMissing, updateNavButtons));
+    slider.append(createMealFigure(day, part));
   });
 
   slider.addEventListener("scroll", () => {
@@ -257,7 +243,28 @@ function renderMealButtons() {
   });
 }
 
-function renderGallery() {
+async function createDayCard(day, index, meal) {
+  const parts = await getAvailableMealParts(day, meal);
+
+  if (!parts.length) return null;
+
+  const card = document.createElement("article");
+  card.className = "day-card";
+
+  const header = document.createElement("div");
+  header.className = "day-header";
+
+  const title = document.createElement("h2");
+  title.className = "day-title";
+  title.textContent = `${dayNames[index] || "Deň"} (${formatDateLabel(day)})`;
+
+  header.append(title, createMealLabel(meal));
+  card.append(header, createMealSlider(day, parts));
+  return card;
+}
+
+async function renderGallery() {
+  const requestId = ++renderRequestId;
   const week = weeks[currentWeekIndex];
   gallery.innerHTML = "";
 
@@ -272,19 +279,20 @@ function renderGallery() {
   previousWeek.disabled = currentWeekIndex === 0;
   nextWeek.disabled = currentWeekIndex === weeks.length - 1;
 
-  week.days.forEach((day, index) => {
-    const card = document.createElement("article");
-    card.className = "day-card";
+  const cards = (await Promise.all(
+    week.days.map((day, index) => createDayCard(day, index, selectedMeal))
+  )).filter(Boolean);
 
-    const header = document.createElement("div");
-    header.className = "day-header";
+  if (requestId !== renderRequestId) return;
 
-    const title = document.createElement("h2");
-    title.className = "day-title";
-    title.textContent = `${dayNames[index] || "Deň"} (${formatDateLabel(day)})`;
+  gallery.innerHTML = "";
 
-    header.append(title, createMealLabel(selectedMeal));
-    card.append(header, createMealSlider(day, selectedMeal));
+  if (!cards.length) {
+    gallery.innerHTML = '<p class="empty-state">Pre vybraný týždeň nie sú dostupné žiadne fotografie.</p>';
+    return;
+  }
+
+  cards.forEach((card) => {
     gallery.append(card);
   });
 }
