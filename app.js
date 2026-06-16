@@ -20,6 +20,16 @@ const weeks = [
 ];
 
 const dayNames = ["Pondelok", "Utorok", "Streda", "Štvrtok", "Piatok"];
+const mealParts = {
+  obed: [
+    { file: "polievka", label: "Polievka" },
+    { file: "menua", label: "Menu A", fallback: "menu-a" },
+    { file: "menub", label: "Menu B", fallback: "menu-b" }
+  ],
+  desiata: [
+    { file: "desiata", label: "Desiata" }
+  ]
+};
 
 let currentWeekIndex = 0;
 let selectedMeal = "obed";
@@ -39,18 +49,33 @@ function formatDateLabel(day) {
   return `${day}.`;
 }
 
-function getImagePath(day, meal) {
-  return `assets/${day}.${meal}.jpg`;
+function getImagePath(day, file) {
+  return `assets/${day}.${file}.jpg`;
 }
 
-function createMealFigure(day, meal) {
+function removeEmptyCard(element) {
+  const card = element.closest(".day-card");
+
+  element.remove();
+
+  if (card && !card.querySelector(".meal-photo")) {
+    card.remove();
+  }
+}
+
+function createMealFigure(day, part, onMissing, onReady) {
   const figure = document.createElement("div");
   figure.className = "meal-photo";
+  let fallbackTried = false;
+
+  const label = document.createElement("span");
+  label.className = "meal-part-label";
+  label.textContent = part.label;
 
   const image = document.createElement("img");
   image.className = "day-photo";
-  image.src = getImagePath(day, meal);
-  image.alt = `${meal === "obed" ? "Obed" : "Desiata"} ${formatDateLabel(day)}`;
+  image.src = getImagePath(day, part.file);
+  image.alt = `${part.label} ${formatDateLabel(day)}`;
   image.loading = "lazy";
 
   const button = document.createElement("button");
@@ -63,23 +88,136 @@ function createMealFigure(day, meal) {
 
   // Missing photos are expected. Hide them silently without showing a broken image.
   image.addEventListener("error", () => {
-    const card = figure.closest(".day-card");
-    figure.remove();
-
-    if (card && !card.querySelector(".meal-photo")) {
-      card.remove();
+    if (part.fallback && !fallbackTried) {
+      fallbackTried = true;
+      image.src = getImagePath(day, part.fallback);
+      return;
     }
+
+    figure.remove();
+    onMissing();
   });
 
-  button.append(image);
+  image.addEventListener("load", onReady);
+
+  button.append(label, image);
   figure.append(button);
   return figure;
+}
+
+function createMealSlider(day, meal) {
+  const viewer = document.createElement("div");
+  viewer.className = "meal-viewer";
+
+  const slider = document.createElement("div");
+  slider.className = "meal-slider";
+
+  const parts = mealParts[meal] || [];
+  let missingCount = 0;
+  let fallbackUsed = false;
+
+  const previousButton = document.createElement("button");
+  previousButton.className = "meal-nav meal-nav-previous";
+  previousButton.type = "button";
+  previousButton.setAttribute("aria-label", "Predchádzajúca fotka jedla");
+  previousButton.textContent = "‹";
+
+  const nextButton = document.createElement("button");
+  nextButton.className = "meal-nav meal-nav-next";
+  nextButton.type = "button";
+  nextButton.setAttribute("aria-label", "Nasledujúca fotka jedla");
+  nextButton.textContent = "›";
+
+  function getVisiblePhotos() {
+    return Array.from(slider.querySelectorAll(".meal-photo"));
+  }
+
+  function getCurrentPhotoIndex() {
+    const photos = getVisiblePhotos();
+    const sliderLeft = slider.getBoundingClientRect().left;
+    let currentIndex = 0;
+    let smallestDistance = Infinity;
+
+    photos.forEach((photo, index) => {
+      const distance = Math.abs(photo.getBoundingClientRect().left - sliderLeft);
+
+      if (distance < smallestDistance) {
+        smallestDistance = distance;
+        currentIndex = index;
+      }
+    });
+
+    return currentIndex;
+  }
+
+  function updateNavButtons() {
+    const photos = getVisiblePhotos();
+    const shouldShow = photos.length > 1;
+
+    previousButton.hidden = !shouldShow;
+    nextButton.hidden = !shouldShow;
+  }
+
+  function scrollToPhoto(index) {
+    const photos = getVisiblePhotos();
+    const target = photos[index];
+
+    if (!target) return;
+
+    slider.scrollTo({
+      left: target.offsetLeft,
+      behavior: "smooth"
+    });
+  }
+
+  previousButton.addEventListener("click", () => {
+    scrollToPhoto(Math.max(0, getCurrentPhotoIndex() - 1));
+  });
+
+  nextButton.addEventListener("click", () => {
+    scrollToPhoto(Math.min(getVisiblePhotos().length - 1, getCurrentPhotoIndex() + 1));
+  });
+
+  function handleMissing() {
+    missingCount = Math.min(missingCount + 1, parts.length);
+
+    if (missingCount < parts.length || slider.querySelector(".meal-photo")) {
+      updateNavButtons();
+      return;
+    }
+
+    if (meal === "obed" && !fallbackUsed) {
+      fallbackUsed = true;
+      slider.append(createMealFigure(
+        day,
+        { file: "obed", label: "Obed" },
+        () => removeEmptyCard(slider),
+        updateNavButtons
+      ));
+      updateNavButtons();
+      return;
+    }
+
+    removeEmptyCard(slider);
+  }
+
+  parts.forEach((part) => {
+    slider.append(createMealFigure(day, part, handleMissing, updateNavButtons));
+  });
+
+  slider.addEventListener("scroll", () => {
+    window.requestAnimationFrame(updateNavButtons);
+  });
+
+  viewer.append(slider, previousButton, nextButton);
+  updateNavButtons();
+  return viewer;
 }
 
 function createMealLabel(meal) {
   const label = document.createElement("span");
   label.className = "meal-label";
-  label.textContent = meal === "obed" ? "Obed" : "Desiata";
+  label.textContent = meal === "obed" ? "Obedy" : "Desiata";
   return label;
 }
 
@@ -146,7 +284,7 @@ function renderGallery() {
     title.textContent = `${dayNames[index] || "Deň"} (${formatDateLabel(day)})`;
 
     header.append(title, createMealLabel(selectedMeal));
-    card.append(header, createMealFigure(day, selectedMeal));
+    card.append(header, createMealSlider(day, selectedMeal));
     gallery.append(card);
   });
 }
